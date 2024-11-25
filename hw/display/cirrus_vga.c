@@ -270,9 +270,10 @@ static bool blit_region_is_unsafe(struct CirrusVGAState *s,
 {
     if (pitch < 0) {
         int64_t min = addr
-            + ((int64_t)s->cirrus_blt_height - 1) * pitch
-            - s->cirrus_blt_width;
-        if (min < -1 || addr >= s->vga.vram_size) {
+            + ((int64_t)s->cirrus_blt_height-1) * pitch;
+        int32_t max = addr
+            + s->cirrus_blt_width;
+        if (min < 0 || max >= s->vga.vram_size) {
             return true;
         }
     } else {
@@ -286,7 +287,7 @@ static bool blit_region_is_unsafe(struct CirrusVGAState *s,
     return false;
 }
 
-static bool blit_is_unsafe(struct CirrusVGAState *s, bool dst_only)
+static bool blit_is_unsafe(struct CirrusVGAState *s)
 {
     /* should be the case, see cirrus_bitblt_start */
     assert(s->cirrus_blt_width > 0);
@@ -299,9 +300,6 @@ static bool blit_is_unsafe(struct CirrusVGAState *s, bool dst_only)
     if (blit_region_is_unsafe(s, s->cirrus_blt_dstpitch,
                               s->cirrus_blt_dstaddr & s->cirrus_addr_mask)) {
         return true;
-    }
-    if (dst_only) {
-        return false;
     }
     if (blit_region_is_unsafe(s, s->cirrus_blt_srcpitch,
                               s->cirrus_blt_srcaddr & s->cirrus_addr_mask)) {
@@ -668,7 +666,7 @@ static int cirrus_bitblt_common_patterncopy(CirrusVGAState * s,
 
     dst = s->vga.vram_ptr + (s->cirrus_blt_dstaddr & s->cirrus_addr_mask);
 
-    if (blit_is_unsafe(s, false))
+    if (blit_is_unsafe(s))
         return 0;
 
     (*s->cirrus_rop) (s, dst, src,
@@ -686,7 +684,7 @@ static int cirrus_bitblt_solidfill(CirrusVGAState *s, int blt_rop)
 {
     cirrus_fill_t rop_func;
 
-    if (blit_is_unsafe(s, true)) {
+    if (blit_is_unsafe(s)) {
         return 0;
     }
     rop_func = cirrus_fill[rop_to_index[blt_rop]][s->cirrus_blt_pixelwidth - 1];
@@ -756,6 +754,11 @@ static void cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
         }
     }
 
+    /* we have to flush all pending changes so that the copy
+       is generated at the appropriate moment in time */
+    if (notify)
+        graphic_hw_update(s->vga.con);
+
     (*s->cirrus_rop) (s, s->vga.vram_ptr +
 		      (s->cirrus_blt_dstaddr & s->cirrus_addr_mask),
 		      s->vga.vram_ptr +
@@ -764,9 +767,10 @@ static void cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
 		      s->cirrus_blt_width, s->cirrus_blt_height);
 
     if (notify) {
-        dpy_gfx_update(s->vga.con, dx, dy,
-                       s->cirrus_blt_width / depth,
-                       s->cirrus_blt_height);
+        qemu_console_copy(s->vga.con,
+			  sx, sy, dx, dy,
+			  s->cirrus_blt_width / depth,
+			  s->cirrus_blt_height);
     }
 
     /* we don't have to notify the display that this portion has
@@ -779,7 +783,7 @@ static void cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
 
 static int cirrus_bitblt_videotovideo_copy(CirrusVGAState * s)
 {
-    if (blit_is_unsafe(s, false))
+    if (blit_is_unsafe(s))
         return 0;
 
     cirrus_do_copy(s, s->cirrus_blt_dstaddr - s->vga.start_addr,
@@ -857,10 +861,6 @@ static int cirrus_bitblt_cputovideo(CirrusVGAState * s)
 {
     int w;
 
-    if (blit_is_unsafe(s, true)) {
-        return 0;
-    }
-
     s->cirrus_blt_mode &= ~CIRRUS_BLTMODE_MEMSYSSRC;
     s->cirrus_srcptr = &s->cirrus_bltbuf[0];
     s->cirrus_srcptr_end = &s->cirrus_bltbuf[0];
@@ -886,10 +886,6 @@ static int cirrus_bitblt_cputovideo(CirrusVGAState * s)
 	}
         s->cirrus_srccounter = s->cirrus_blt_srcpitch * s->cirrus_blt_height;
     }
-
-    /* the blit_is_unsafe call above should catch this */
-    assert(s->cirrus_blt_srcpitch <= CIRRUS_BLTBUFSIZE);
-
     s->cirrus_srcptr = s->cirrus_bltbuf;
     s->cirrus_srcptr_end = s->cirrus_bltbuf + s->cirrus_blt_srcpitch;
     cirrus_update_memory_access(s);

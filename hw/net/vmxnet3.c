@@ -1135,13 +1135,8 @@ static void vmxnet3_reset_mac(VMXNET3State *s)
 
 static void vmxnet3_deactivate_device(VMXNET3State *s)
 {
-    if (s->device_active) {
-        VMW_CBPRN("Deactivating vmxnet3...");
-        vmxnet_tx_pkt_reset(s->tx_pkt);
-        vmxnet_tx_pkt_uninit(s->tx_pkt);
-        vmxnet_rx_pkt_uninit(s->rx_pkt);
-        s->device_active = false;
-    }
+    VMW_CBPRN("Deactivating vmxnet3...");
+    s->device_active = false;
 }
 
 static void vmxnet3_reset(VMXNET3State *s)
@@ -1150,6 +1145,7 @@ static void vmxnet3_reset(VMXNET3State *s)
 
     vmxnet3_deactivate_device(s);
     vmxnet3_reset_interrupt_states(s);
+    vmxnet_tx_pkt_reset(s->tx_pkt);
     s->drv_shmem = 0;
     s->tx_sop = true;
     s->skip_current_tx_pkt = false;
@@ -1372,12 +1368,6 @@ static void vmxnet3_activate_device(VMXNET3State *s)
         return;
     }
 
-    /* Verify if device is active */
-    if (s->device_active) {
-        VMW_CFPRN("Vmxnet3 device is active");
-        return;
-    }
-
     vmxnet3_adjust_by_guest_type(s);
     vmxnet3_update_features(s);
     vmxnet3_update_pm_state(s);
@@ -1574,7 +1564,7 @@ static void vmxnet3_handle_command(VMXNET3State *s, uint64_t cmd)
         break;
 
     case VMXNET3_CMD_QUIESCE_DEV:
-        VMW_CBPRN("Set: VMXNET3_CMD_QUIESCE_DEV - deactivate the device");
+        VMW_CBPRN("Set: VMXNET3_CMD_QUIESCE_DEV - pause the device");
         vmxnet3_deactivate_device(s);
         break;
 
@@ -1679,7 +1669,7 @@ vmxnet3_io_bar1_write(void *opaque,
          * shared address only after we get the high part
          */
         if (val == 0) {
-            vmxnet3_deactivate_device(s);
+            s->device_active = false;
         }
         s->temp_shared_guest_driver_memory = val;
         s->drv_shmem = 0;
@@ -1966,7 +1956,9 @@ static bool vmxnet3_peer_has_vnet_hdr(VMXNET3State *s)
 static void vmxnet3_net_uninit(VMXNET3State *s)
 {
     g_free(s->mcast_list);
-    vmxnet3_deactivate_device(s);
+    vmxnet_tx_pkt_reset(s->tx_pkt);
+    vmxnet_tx_pkt_uninit(s->tx_pkt);
+    vmxnet_rx_pkt_uninit(s->rx_pkt);
     qemu_del_nic(s->nic);
 }
 

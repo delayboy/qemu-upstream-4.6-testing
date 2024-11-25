@@ -12,7 +12,6 @@
 
 #include "hw/pci/pci.h"
 #include "hw/i386/pc.h"
-#include "hw/i386/apic-msidef.h"
 #include "hw/xen/xen_common.h"
 #include "hw/xen/xen_backend.h"
 #include "qmp-commands.h"
@@ -155,14 +154,6 @@ void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len)
             xc_hvm_set_pci_link_route(xen_xc, xen_domid, address + i - 0x60, v);
         }
     }
-}
-
-int xen_is_pirq_msi(uint32_t msi_data)
-{
-    /* If vector is 0, the msi is remapped into a pirq, passed as
-     * dest_id.
-     */
-    return ((msi_data & MSI_DATA_VECTOR_MASK) >> MSI_DATA_VECTOR_SHIFT) == 0;
 }
 
 void xen_hvm_inject_msi(uint64_t addr, uint32_t data)
@@ -817,10 +808,6 @@ static void cpu_ioreq_pio(ioreq_t *req)
 {
     uint32_t i;
 
-    if (req->size > sizeof(uint32_t)) {
-        hw_error("PIO: bad size (%u)", req->size);
-    }
-
     if (req->dir == IOREQ_READ) {
         if (!req->data_is_ptr) {
             req->data = do_inp(req->addr, req->size);
@@ -849,10 +836,6 @@ static void cpu_ioreq_pio(ioreq_t *req)
 static void cpu_ioreq_move(ioreq_t *req)
 {
     uint32_t i;
-
-    if (req->size > sizeof(req->data)) {
-        hw_error("MMIO: bad size (%u)", req->size);
-    }
 
     if (!req->data_is_ptr) {
         if (req->dir == IOREQ_READ) {
@@ -1007,13 +990,11 @@ static int handle_buffered_iopage(XenIOState *state)
         req.df = 1;
         req.type = buf_req->type;
         req.data_is_ptr = 0;
-        xen_rmb();
         qw = (req.size == 8);
         if (qw) {
             buf_req = &buf_page->buf_ioreq[(rdptr + 1) %
                                            IOREQ_BUFFER_SLOT_NUM];
             req.data |= ((uint64_t)buf_req->data) << 32;
-            xen_rmb();
         }
 
         handle_ioreq(state, &req);
@@ -1044,11 +1025,7 @@ static void cpu_handle_ioreq(void *opaque)
 
     handle_buffered_iopage(state);
     if (req) {
-        ioreq_t copy = *req;
-
-        xen_rmb();
-        handle_ioreq(state, &copy);
-        req->data = copy.data;
+        handle_ioreq(state, req);
 
         if (req->state != STATE_IOREQ_INPROCESS) {
             fprintf(stderr, "Badness in I/O request ... not in service?!: "

@@ -815,8 +815,7 @@ start_xmit(E1000State *s)
          * bogus values to TDT/TDLEN.
          * there's nothing too intelligent we could do about this.
          */
-        if (s->mac_reg[TDH] == tdh_start ||
-            tdh_start >= s->mac_reg[TDLEN] / sizeof(desc)) {
+        if (s->mac_reg[TDH] == tdh_start) {
             DBGOUT(TXERR, "TDH wraparound @%x, TDT %x, TDLEN %x\n",
                    tdh_start, s->mac_reg[TDT], s->mac_reg[TDLEN]);
             break;
@@ -1060,8 +1059,7 @@ e1000_receive_iov(NetClientState *nc, const struct iovec *iov, int iovcnt)
         if (++s->mac_reg[RDH] * sizeof(desc) >= s->mac_reg[RDLEN])
             s->mac_reg[RDH] = 0;
         /* see comment in start_xmit; same here */
-        if (s->mac_reg[RDH] == rdh_start ||
-            rdh_start >= s->mac_reg[RDLEN] / sizeof(desc)) {
+        if (s->mac_reg[RDH] == rdh_start) {
             DBGOUT(RXERR, "RDH wraparound @%x, RDT %x, RDLEN %x\n",
                    rdh_start, s->mac_reg[RDT], s->mac_reg[RDLEN]);
             set_ics(s, 0, E1000_ICS_RXO);
