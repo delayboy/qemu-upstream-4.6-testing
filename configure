@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # qemu configure script (c) 2003 Fabrice Bellard
-#
+# for dummy branch
 
 # Unset some variables known to interfere with behavior of common tools,
 # just as autoconf does.
